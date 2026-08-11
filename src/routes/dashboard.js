@@ -1,11 +1,18 @@
 import { Router } from 'express';
 import { supabase } from '../config/supabase.js';
 import { requireAuth } from '../middleware/auth.js';
+import serverCache from '../utils/cache.js';
 
 const router = Router();
 
 router.get('/', requireAuth, async (req, res) => {
   try {
+    const cached = serverCache.get('dashboard:stats');
+    if (cached) {
+      res.setHeader('X-Cache', 'HIT');
+      return res.json(cached);
+    }
+
     const [{ count: totalHotels }, { count: totalUsers }, { count: totalGuests }, bookingStats, roomOccupancy] = await Promise.all([
       supabase.from('hotels').select('*', { count: 'exact', head: true }),
       supabase.from('profiles').select('*', { count: 'exact', head: true }),
@@ -18,7 +25,7 @@ router.get('/', requireAuth, async (req, res) => {
       ? Math.round(((roomOccupancy.data.total_rooms - roomOccupancy.data.available_rooms) / roomOccupancy.data.total_rooms) * 1000) / 10
       : 0;
 
-    res.json({
+    const result = {
       totalHotels: totalHotels || 0,
       totalUsers: totalUsers || 0,
       totalGuests: totalGuests || 0,
@@ -26,7 +33,11 @@ router.get('/', requireAuth, async (req, res) => {
       totalRevenue: bookingStats.data?.total_revenue || 0,
       occupancyRate,
       rooms: roomOccupancy.data || {},
-    });
+    };
+
+    serverCache.set('dashboard:stats', result, 30 * 1000); // 30s TTL
+    res.setHeader('X-Cache', 'MISS');
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -40,6 +51,12 @@ router.get('/', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------
 router.get('/charts', requireAuth, async (req, res) => {
   try {
+    const cached = serverCache.get('dashboard:charts');
+    if (cached) {
+      res.setHeader('X-Cache', 'HIT');
+      return res.json(cached);
+    }
+
     const since = new Date();
     since.setDate(since.getDate() - 6);
     const sinceStr = since.toISOString().slice(0, 10);
@@ -68,7 +85,10 @@ router.get('/charts', requireAuth, async (req, res) => {
     });
     const bookingsBySource = Object.entries(sourceCounts).map(([name, value]) => ({ name, value }));
 
-    res.json({ revenueByDay, bookingsBySource });
+    const result = { revenueByDay, bookingsBySource };
+    serverCache.set('dashboard:charts', result, 30 * 1000);
+    res.setHeader('X-Cache', 'MISS');
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

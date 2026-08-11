@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase.js';
+import serverCache from '../utils/cache.js';
 
 let cachedHotelId = null;
 async function getDefaultHotelId() {
@@ -100,6 +101,13 @@ export function crudFactory(table, select = '*') {
   return {
     async list(req, res) {
       try {
+        const cacheKey = `${table}:list:${req.originalUrl}`;
+        const cached = serverCache.get(cacheKey);
+        if (cached) {
+          res.setHeader('X-Cache', 'HIT');
+          return res.json(cached);
+        }
+
         const { page = 1, limit = 10, search, searchColumn, sortBy, sortDir = 'desc', ...filters } = req.query;
         const from = (Number(page) - 1) * Number(limit);
         const to = from + Number(limit) - 1;
@@ -130,7 +138,10 @@ export function crudFactory(table, select = '*') {
           throw error;
         }
 
-        res.json({ data, total: count, page: Number(page), limit: Number(limit) });
+        const result = { data, total: count, page: Number(page), limit: Number(limit) };
+        serverCache.set(cacheKey, result, 60 * 1000); // 60s cache
+        res.setHeader('X-Cache', 'MISS');
+        res.json(result);
       } catch (err) {
         console.error(`❌ [API Error in ${table}]:`, err.message || err);
         res.status(500).json({ error: err.message || 'Internal server error' });
@@ -139,9 +150,20 @@ export function crudFactory(table, select = '*') {
 
     async getOne(req, res) {
       try {
+        const cacheKey = `${table}:one:${req.params.id}`;
+        const cached = serverCache.get(cacheKey);
+        if (cached) {
+          res.setHeader('X-Cache', 'HIT');
+          return res.json(cached);
+        }
+
         const { data, error } = await supabase.from(table).select(select).eq('id', req.params.id).single();
         if (error) throw error;
-        res.json({ data });
+
+        const result = { data };
+        serverCache.set(cacheKey, result, 60 * 1000);
+        res.setHeader('X-Cache', 'MISS');
+        res.json(result);
       } catch (err) {
         res.status(404).json({ error: err.message });
       }
@@ -156,6 +178,8 @@ export function crudFactory(table, select = '*') {
           console.error(`❌ [Create Error in ${table}]:`, error.message || error);
           return res.status(400).json({ error: error.message || 'Failed to create record' });
         }
+
+        serverCache.invalidateTable(table);
         res.status(201).json({ data });
       } catch (err) {
         console.error(`❌ [Create API Error in ${table}]:`, err.message || err);
@@ -185,6 +209,8 @@ export function crudFactory(table, select = '*') {
           console.error(`❌ [Update Error in ${table}]:`, error.message || error);
           return res.status(400).json({ error: error.message || 'Failed to update record' });
         }
+
+        serverCache.invalidateTable(table);
         res.json({ data });
       } catch (err) {
         console.error(`❌ [Update API Error in ${table}]:`, err.message || err);
@@ -199,6 +225,8 @@ export function crudFactory(table, select = '*') {
           console.error(`❌ [Delete Error in ${table}]:`, error.message || error);
           throw error;
         }
+
+        serverCache.invalidateTable(table);
         res.status(204).send();
       } catch (err) {
         console.error(`❌ [Delete API Error in ${table}]:`, err.message || err);
