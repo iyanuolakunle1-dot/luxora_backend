@@ -168,9 +168,16 @@ export function crudFactory(table, select = '*') {
         const payload = await sanitizePayload(table, req.body);
         delete payload.id; // Avoid updating primary key id
         console.log(`📝 [Updating in ${table} (${req.params.id})]:`, JSON.stringify(payload));
+        
+        const TABLES_WITH_UPDATED_AT = ['profiles', 'bookings', 'housekeeping_tasks'];
+        const updateData = { ...payload };
+        if (TABLES_WITH_UPDATED_AT.includes(table)) {
+          updateData.updated_at = new Date().toISOString();
+        }
+
         const { data, error } = await supabase
           .from(table)
-          .update({ ...payload, updated_at: new Date().toISOString() })
+          .update(updateData)
           .eq('id', req.params.id)
           .select()
           .single();

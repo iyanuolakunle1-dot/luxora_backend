@@ -33,6 +33,10 @@ router.put('/', requireGuest, async (req, res) => {
       }
     });
 
+    if (payload.date_of_birth && typeof payload.date_of_birth === 'string') {
+      payload.date_of_birth = payload.date_of_birth.split('T')[0];
+    }
+
     const { data, error } = await supabase
       .from('guests')
       .update(payload)
@@ -44,7 +48,14 @@ router.put('/', requireGuest, async (req, res) => {
       console.error('❌ [PUT /api/me Supabase Error]:', error.message || error);
       throw error;
     }
-    res.json({ data });
+
+    if (payload.full_name && req.user?.id) {
+      await supabase.auth.admin.updateUserById(req.user.id, {
+        user_metadata: { full_name: payload.full_name, name: payload.full_name },
+      }).catch(() => {});
+    }
+
+    res.json({ data, message: 'Profile updated successfully' });
   } catch (err) {
     console.error('❌ [PUT /api/me Error]:', err.message || err);
     res.status(400).json({ error: err.message });

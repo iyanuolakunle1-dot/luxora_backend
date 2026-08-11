@@ -41,16 +41,51 @@ router.put('/profile', requireAuth, async (req, res) => {
     if (department !== undefined) updateData.department = department;
     updateData.updated_at = new Date().toISOString();
 
-    const { data: updated, error } = await supabase
+    const { data: existing } = await supabase
       .from('profiles')
-      .update(updateData)
+      .select('id')
       .eq('id', req.user.id)
-      .select('*, roles(name, slug, access_level)')
-      .single();
+      .maybeSingle();
 
-    if (error) throw error;
+    let updated;
+    if (!existing) {
+      const { data: inserted, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: req.user.id,
+          email: req.user.email,
+          full_name: full_name || req.user.user_metadata?.full_name || req.user.email?.split('@')[0] || 'Staff Administrator',
+          phone: phone || null,
+          avatar_url: avatar_url || null,
+          department: department || 'Executive Management',
+          updated_at: new Date().toISOString(),
+        })
+        .select('*, roles(name, slug, access_level)')
+        .single();
+
+      if (insertError) throw insertError;
+      updated = inserted;
+    } else {
+      const { data: upd, error: updateError } = await supabase
+        .from('profiles')
+        .update(updateData)
+        .eq('id', req.user.id)
+        .select('*, roles(name, slug, access_level)')
+        .single();
+
+      if (updateError) throw updateError;
+      updated = upd;
+    }
+
+    if (full_name) {
+      await supabase.auth.admin.updateUserById(req.user.id, {
+        user_metadata: { full_name, name: full_name },
+      }).catch(() => {});
+    }
+
     res.json({ profile: updated, message: 'Profile updated successfully' });
   } catch (err) {
+    console.error('❌ [PUT /api/auth/profile Error]:', err.message || err);
     res.status(400).json({ error: err.message });
   }
 });
