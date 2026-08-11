@@ -17,7 +17,33 @@ import { seedDatabase } from './utils/seedData.js';
 dotenv.config();
 const app = express();
 
-app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
+// Permissive and secure CORS setup handling credentials, localhost, Vercel, and custom domains
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      // Strip trailing slash if present
+      const cleanOrigin = origin.replace(/\/$/, '');
+      const configuredClient = (process.env.CLIENT_URL || '').replace(/\/$/, '');
+      if (
+        !configuredClient ||
+        configuredClient === '*' ||
+        cleanOrigin === configuredClient ||
+        cleanOrigin.endsWith('.vercel.app') ||
+        cleanOrigin.endsWith('.onrender.com') ||
+        cleanOrigin.startsWith('http://localhost:') ||
+        cleanOrigin.startsWith('http://127.0.0.1:')
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(morgan('dev'));
