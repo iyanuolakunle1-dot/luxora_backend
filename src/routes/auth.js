@@ -30,6 +30,31 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user, profile: req.profile });
 });
 
+// PUT /api/auth/profile — update staff profile
+router.put('/profile', requireAuth, async (req, res) => {
+  try {
+    const { full_name, phone, avatar_url, department } = req.body;
+    const updateData = {};
+    if (full_name !== undefined) updateData.full_name = full_name;
+    if (phone !== undefined) updateData.phone = phone;
+    if (avatar_url !== undefined) updateData.avatar_url = avatar_url;
+    if (department !== undefined) updateData.department = department;
+    updateData.updated_at = new Date().toISOString();
+
+    const { data: updated, error } = await supabase
+      .from('profiles')
+      .update(updateData)
+      .eq('id', req.user.id)
+      .select('*, roles(name, slug, access_level)')
+      .single();
+
+    if (error) throw error;
+    res.json({ profile: updated, message: 'Profile updated successfully' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // POST /api/auth/logout
 router.post('/logout', requireAuth, async (req, res) => {
   await supabase.auth.admin.signOut(req.headers.authorization.slice(7)).catch(() => {});
